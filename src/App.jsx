@@ -467,7 +467,7 @@ export default function CalendarCoverPuzzleGame() {
   const [targetMonthIndex, setTargetMonthIndex] = useState(8);
   const [targetWeekdayIndex, setTargetWeekdayIndex] = useState(6);
   const [targetDay, setTargetDay] = useState(25);
-  const [puzzle, setPuzzle] = useState(() => solveTarget(0, 0, 1) || generateRandomPuzzle());
+  const [puzzle, setPuzzle] = useState(() => solveTarget(8, 6, 25) || generateRandomPuzzle());
   const [placements, setPlacements] = useState({});
   const [selectedPieceId, setSelectedPieceId] = useState(PIECES[0].id);
   const [orientations, setOrientations] = useState(
