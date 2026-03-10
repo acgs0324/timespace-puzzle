@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { RotateCw, FlipHorizontal, RefreshCw, Lightbulb, CheckCircle2 } from "lucide-react";
+import { RotateCw, FlipHorizontal, RefreshCw, Lightbulb, CheckCircle2, Eraser } from "lucide-react";
 import "./App.css";
 
 function Button({ className = "", variant, ...props }) {
@@ -638,6 +638,13 @@ export default function CalendarCoverPuzzleGame() {
     setSelectedPieceId(pieceId);
   }
 
+  function clearBoard() {
+    setPlacements({});
+    setHoverAnchor(null);
+    setIsCelebrating(false);
+    setMessage("Cover every gray square. Leave only the yellow month, weekday, and date visible.");
+  }
+
   function giveHint() {
     if (!puzzle) return;
     const placed = new Set(Object.keys(placements));
@@ -772,6 +779,14 @@ export default function CalendarCoverPuzzleGame() {
                 </Button>
                 <Button variant="outline" className="rounded-2xl" onClick={flipSelected} disabled={!selectedPieceId}>
                   <FlipHorizontal className="mr-2 h-4 w-4" /> Flip
+                </Button>
+                <Button
+                  variant="outline"
+                  className="rounded-2xl"
+                  onClick={clearBoard}
+                  disabled={Object.keys(placements).length === 0}
+                >
+                  <Eraser className="mr-2 h-4 w-4" /> Clear board
                 </Button>
                 {puzzle && (
                   <div className="rounded-2xl bg-slate-100 px-4 py-2 text-sm text-slate-700">
