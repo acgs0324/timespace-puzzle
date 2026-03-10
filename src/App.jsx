@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { RotateCw, FlipHorizontal, RefreshCw, Lightbulb, CheckCircle2 } from "lucide-react";
 import "./App.css";
 
@@ -477,6 +477,7 @@ export default function CalendarCoverPuzzleGame() {
   const [message, setMessage] = useState(
     "Cover every gray square. Leave only the yellow month, weekday, and date visible."
   );
+  const [isCelebrating, setIsCelebrating] = useState(false);
 
   const occupiedCellToPiece = useMemo(() => {
     const map = new Map();
@@ -528,6 +529,7 @@ export default function CalendarCoverPuzzleGame() {
     setPlacements({});
     setHoverAnchor(null);
     setSelectedPieceId(PIECES[0].id);
+    setIsCelebrating(false);
     resetOrientations();
   }
 
@@ -605,6 +607,9 @@ export default function CalendarCoverPuzzleGame() {
         color: PIECE_BY_ID[selectedPieceId].color,
       },
     }));
+    if (Object.keys(placements).length + 1 === PIECES.length) {
+      setIsCelebrating(true);
+    }
 
     const nextUnplaced = PIECES.find((piece) => piece.id !== selectedPieceId && !placements[piece.id]);
     if (nextUnplaced) setSelectedPieceId(nextUnplaced.id);
@@ -660,8 +665,17 @@ export default function CalendarCoverPuzzleGame() {
       };
     });
     setPlacements(solved);
+    setIsCelebrating(false);
     setMessage("Solved. Start a new puzzle whenever you want another challenge.");
   }
+
+  useEffect(() => {
+    if (!isCelebrating) return undefined;
+    const timeoutId = window.setTimeout(() => {
+      setIsCelebrating(false);
+    }, 1800);
+    return () => window.clearTimeout(timeoutId);
+  }, [isCelebrating]);
 
   function boardCellClass(key) {
     if (!BOARD.valid.has(key)) return "bg-transparent border-transparent";
@@ -740,7 +754,15 @@ export default function CalendarCoverPuzzleGame() {
 
           <Card className="rounded-3xl border-0 shadow-xl">
             <CardHeader className="pb-2">
-              <CardTitle className="text-lg">Board</CardTitle>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <CardTitle className="text-lg">Board</CardTitle>
+                {isSolved && (
+                  <div className="finish-indicator" aria-live="polite">
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>Puzzle solved</span>
+                  </div>
+                )}
+              </div>
               <div className="text-sm text-slate-600">{displayedMessage}</div>
             </CardHeader>
             <CardContent>
@@ -760,7 +782,7 @@ export default function CalendarCoverPuzzleGame() {
 
               <div className="overflow-x-auto">
                 <div
-                  className="relative mx-auto grid rounded-[2rem] bg-slate-300/50 p-6"
+                  className={`relative mx-auto grid rounded-[2rem] bg-slate-300/50 p-6 ${isCelebrating ? "board-celebration" : ""}`}
                   onMouseMove={updateHoverAnchor}
                   onMouseLeave={() => setHoverAnchor(null)}
                   style={{
@@ -770,6 +792,7 @@ export default function CalendarCoverPuzzleGame() {
                     gap: 0,
                   }}
                 >
+                  {isCelebrating && <div className="celebration-burst" aria-hidden="true" />}
                   {Array.from({ length: BOARD_ROWS * BOARD_COLS }).map((_, index) => {
                     const r = Math.floor(index / BOARD_COLS);
                     const c = index % BOARD_COLS;
