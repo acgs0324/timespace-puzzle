@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { RotateCw, FlipHorizontal, RefreshCw, Lightbulb, CheckCircle2, Eraser } from "lucide-react";
 import "./App.css";
 
@@ -46,7 +46,8 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const BOARD_ROWS = 7;
 const BOARD_COLS = 8;
-const CELL = 48;
+const BASE_CELL = 48;
+const MIN_CELL = 34;
 const BOARD_PADDING = 24;
 
 const PIECES = [
@@ -297,6 +298,18 @@ function makeBoard() {
 const BOARD = makeBoard();
 const PIECE_BY_ID = Object.fromEntries(PIECES.map((piece) => [piece.id, piece]));
 const TRANSFORMS = Object.fromEntries(PIECES.map((piece) => [piece.id, getUniqueTransforms(piece.cells)]));
+const PIECE_PREVIEW = Object.values(TRANSFORMS).reduce(
+  (max, shapes) => {
+    shapes.forEach((shape) => {
+      const width = Math.max(...shape.map(([x]) => x)) + 1;
+      const height = Math.max(...shape.map(([, y]) => y)) + 1;
+      max.cols = Math.max(max.cols, width);
+      max.rows = Math.max(max.rows, height);
+    });
+    return max;
+  },
+  { cols: 0, rows: 0 }
+);
 
 function cellKey(r, c) {
   return `${r},${c}`;
@@ -352,12 +365,20 @@ function buildPlacements(blockedSet) {
   return { placementsByPiece, placementsByCellAndPiece };
 }
 
-function solvePuzzle(blockedSet) {
+function solvePuzzle(blockedSet, lockedPlacements = []) {
   const openCells = [...BOARD.valid].filter((key) => !blockedSet.has(key));
   const { placementsByCellAndPiece } = buildPlacements(blockedSet);
   const uncovered = new Set(openCells);
   const remainingPieces = new Set(PIECES.map((piece) => piece.id));
   const solution = [];
+
+  for (const placement of lockedPlacements) {
+    if (!remainingPieces.has(placement.pieceId)) return null;
+    if (!placement.cells.every((key) => uncovered.has(key))) return null;
+    remainingPieces.delete(placement.pieceId);
+    placement.cells.forEach((key) => uncovered.delete(key));
+    solution.push({ ...placement });
+  }
 
   function recurse() {
     if (uncovered.size === 0) return true;
@@ -437,26 +458,34 @@ function PieceMini({ piece, selected, placed, orientation, onClick }) {
   return (
     <button
       onClick={onClick}
-      className={`rounded-2xl border p-3 transition ${selected ? "border-slate-900 bg-slate-100 shadow-lg" : "border-slate-200 bg-white"} ${placed ? "opacity-45" : "hover:shadow-md"}`}
+      className={`flex flex-col items-center rounded-2xl border p-3 transition ${selected ? "border-slate-900 bg-slate-100 shadow-lg" : "border-slate-200 bg-white"} ${placed ? "opacity-45" : "hover:shadow-md"}`}
     >
       <div
-        className="grid gap-1"
+        className="flex items-center justify-center"
         style={{
-          gridTemplateColumns: `repeat(${width}, 1.1rem)`,
-          gridTemplateRows: `repeat(${height}, 1.1rem)`,
+          width: `calc(${PIECE_PREVIEW.cols} * 1.1rem + ${(PIECE_PREVIEW.cols - 1) * 0.25}rem)`,
+          height: `calc(${PIECE_PREVIEW.rows} * 1.1rem + ${(PIECE_PREVIEW.rows - 1) * 0.25}rem)`,
         }}
       >
-        {Array.from({ length: width * height }).map((_, index) => {
-          const x = index % width;
-          const y = Math.floor(index / width);
-          const filled = shape.some(([sx, sy]) => sx === x && sy === y);
-          return (
-            <div
-              key={index}
-              className={`h-4 w-4 rounded-[4px] ${filled ? piece.color : "bg-transparent"}`}
-            />
-          );
-        })}
+        <div
+          className="grid gap-1"
+          style={{
+            gridTemplateColumns: `repeat(${width}, 1.1rem)`,
+            gridTemplateRows: `repeat(${height}, 1.1rem)`,
+          }}
+        >
+          {Array.from({ length: width * height }).map((_, index) => {
+            const x = index % width;
+            const y = Math.floor(index / width);
+            const filled = shape.some(([sx, sy]) => sx === x && sy === y);
+            return (
+              <div
+                key={index}
+                className={`h-4 w-4 rounded-[4px] ${filled ? piece.color : "bg-transparent"}`}
+              />
+            );
+          })}
+        </div>
       </div>
       <div className="mt-2 text-xs font-medium text-slate-600">{piece.name}</div>
     </button>
@@ -464,9 +493,11 @@ function PieceMini({ piece, selected, placed, orientation, onClick }) {
 }
 
 export default function CalendarCoverPuzzleGame() {
+  const boardFrameRef = useRef(null);
   const [targetMonthIndex, setTargetMonthIndex] = useState(8);
   const [targetWeekdayIndex, setTargetWeekdayIndex] = useState(6);
   const [targetDay, setTargetDay] = useState(25);
+  const [boardFrameWidth, setBoardFrameWidth] = useState(0);
   const [puzzle, setPuzzle] = useState(() => solveTarget(8, 6, 25) || generateRandomPuzzle());
   const [placements, setPlacements] = useState({});
   const [selectedPieceId, setSelectedPieceId] = useState(PIECES[0].id);
@@ -510,6 +541,26 @@ export default function CalendarCoverPuzzleGame() {
       y: total.y / selectedShape.length,
     };
   }, [selectedShape]);
+
+  const boardCell = useMemo(() => {
+    if (!boardFrameWidth) return BASE_CELL;
+    const nextCell = Math.floor((boardFrameWidth - BOARD_PADDING * 2) / BOARD_COLS);
+    return Math.max(MIN_CELL, nextCell);
+  }, [boardFrameWidth]);
+
+  const boardWidth = BOARD_COLS * boardCell + BOARD_PADDING * 2;
+  const boardHeight = BOARD_ROWS * boardCell + BOARD_PADDING * 2;
+
+  useEffect(() => {
+    if (!boardFrameRef.current || typeof ResizeObserver === "undefined") return undefined;
+
+    const observer = new ResizeObserver(([entry]) => {
+      setBoardFrameWidth(entry.contentRect.width);
+    });
+
+    observer.observe(boardFrameRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   const previewCells = useMemo(() => {
     if (!selectedPieceId || placements[selectedPieceId] || !hoverAnchor || !selectedShape || !puzzle) return [];
@@ -624,8 +675,8 @@ export default function CalendarCoverPuzzleGame() {
     const rect = event.currentTarget.getBoundingClientRect();
     const x = event.clientX - rect.left - BOARD_PADDING;
     const y = event.clientY - rect.top - BOARD_PADDING;
-    const c = Math.round(x / CELL - selectedShapeCenter.x);
-    const r = Math.round(y / CELL - selectedShapeCenter.y);
+    const c = Math.round(x / boardCell - selectedShapeCenter.x);
+    const r = Math.round(y / boardCell - selectedShapeCenter.y);
     setHoverAnchor({ r, c });
   }
 
@@ -645,11 +696,28 @@ export default function CalendarCoverPuzzleGame() {
     setMessage("Cover every gray square. Leave only the yellow month, weekday, and date visible.");
   }
 
+  function getLockedPlacements() {
+    return Object.values(placements).map((placement) => ({
+      pieceId: placement.pieceId,
+      cells: [...placement.cells],
+      color: placement.color,
+    }));
+  }
+
   function giveHint() {
     if (!puzzle) return;
+    const solution = solvePuzzle(new Set(puzzle.yellow), getLockedPlacements());
+
+    if (!solution) {
+      setIsCelebrating(false);
+      setMessage("No solution under the current configuration.");
+      return;
+    }
+
     const placed = new Set(Object.keys(placements));
-    const next = puzzle.solution.find((item) => !placed.has(item.pieceId));
+    const next = solution.find((item) => !placed.has(item.pieceId));
     if (!next) return;
+
     setPlacements((prev) => ({
       ...prev,
       [next.pieceId]: {
@@ -659,12 +727,21 @@ export default function CalendarCoverPuzzleGame() {
       },
     }));
     setSelectedPieceId(next.pieceId);
+    setMessage("Hint applied for the current board.");
   }
 
   function solveAll() {
     if (!puzzle) return;
+    const solution = solvePuzzle(new Set(puzzle.yellow), getLockedPlacements());
+
+    if (!solution) {
+      setIsCelebrating(false);
+      setMessage("No solution under the current configuration.");
+      return;
+    }
+
     const solved = {};
-    puzzle.solution.forEach((item) => {
+    solution.forEach((item) => {
       solved[item.pieceId] = {
         pieceId: item.pieceId,
         cells: item.cells,
@@ -672,8 +749,8 @@ export default function CalendarCoverPuzzleGame() {
       };
     });
     setPlacements(solved);
-    setIsCelebrating(false);
-    setMessage("Solved. Start a new puzzle whenever you want another challenge.");
+    setIsCelebrating(solution.length === PIECES.length);
+    setMessage("Solved from the current board.");
   }
 
   useEffect(() => {
@@ -740,7 +817,7 @@ export default function CalendarCoverPuzzleGame() {
           </div>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)_280px]">
+        <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
           <Card className="rounded-3xl border-0 shadow-lg">
             <CardHeader>
               <CardTitle className="text-lg">Pieces</CardTitle>
@@ -772,7 +849,7 @@ export default function CalendarCoverPuzzleGame() {
               </div>
               <div className="text-sm text-slate-600">{displayedMessage}</div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex h-full flex-col">
               <div className="mb-4 flex flex-wrap items-center gap-3">
                 <Button variant="outline" className="rounded-2xl" onClick={rotateSelected} disabled={!selectedPieceId}>
                   <RotateCw className="mr-2 h-4 w-4" /> Rotate
@@ -795,15 +872,17 @@ export default function CalendarCoverPuzzleGame() {
                 )}
               </div>
 
-              <div className="overflow-x-auto">
+              <div ref={boardFrameRef} className="flex flex-1">
                 <div
-                  className={`relative mx-auto grid rounded-[2rem] bg-slate-300/50 p-6 ${isCelebrating ? "board-celebration" : ""}`}
+                  className={`relative grid rounded-[2rem] bg-slate-300/50 ${isCelebrating ? "board-celebration" : ""}`}
                   onMouseMove={updateHoverAnchor}
                   onMouseLeave={() => setHoverAnchor(null)}
                   style={{
-                    width: BOARD_COLS * CELL + 48,
-                    gridTemplateColumns: `repeat(${BOARD_COLS}, ${CELL}px)`,
-                    gridTemplateRows: `repeat(${BOARD_ROWS}, ${CELL}px)`,
+                    width: "100%",
+                    height: boardHeight,
+                    padding: BOARD_PADDING,
+                    gridTemplateColumns: `repeat(${BOARD_COLS}, ${boardCell}px)`,
+                    gridTemplateRows: `repeat(${BOARD_ROWS}, ${boardCell}px)`,
                     gap: 0,
                   }}
                 >
@@ -825,7 +904,7 @@ export default function CalendarCoverPuzzleGame() {
                             placeSelectedAt(hoverAnchor ?? parseKey(key));
                           }
                         }}
-                        className={`flex items-center justify-center border text-center text-sm font-bold transition ${boardCellClass(key)} ${isValid ? "cursor-pointer" : "cursor-default"}`}
+                        className={`flex items-center justify-center border text-center text-lg font-bold transition ${boardCellClass(key)} ${isValid ? "cursor-pointer" : "cursor-default"}`}
                       >
                         <span className={occupiedCellToPiece.has(key) ? "drop-shadow-sm" : "text-slate-700"}>
                           {BOARD.labels.get(key) || ""}
@@ -839,23 +918,6 @@ export default function CalendarCoverPuzzleGame() {
               <div className="mt-4 text-sm text-slate-500">
                 Click a piece to select it. Rotate or flip it, then move over the board to center the piece under your cursor and click to place it. Click any placed piece on the board to pick it back up.
               </div>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-3xl border-0 shadow-lg">
-            <CardHeader>
-              <CardTitle className="text-lg">How it works</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4 text-sm leading-6 text-slate-600">
-              <p>
-                The board is fixed like the puzzle in your reference image. The month cells are on the left, weekdays are across the top with Saturday and Sunday tucked into the first date row, and the numbered day cells fill the rest.
-              </p>
-              <p>
-                You can choose any month, weekday, and date directly. The weekday is independent, so combinations like Tue with Feb 31 are allowed if the board has a solution for them.
-              </p>
-              <p>
-                Both manual targets and random targets are checked by the built in solver first, so only solvable combinations are loaded onto the board.
-              </p>
             </CardContent>
           </Card>
         </div>
